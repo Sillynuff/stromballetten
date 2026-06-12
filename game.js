@@ -338,9 +338,11 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 
 /* ---------------- TOUCH-KONTROLLER ---------------- */
-// Forseres med #playtouch for testing i DevTools-emulering
-const isTouch = ('ontouchstart' in window)
-  || (window.matchMedia && matchMedia('(pointer: coarse)').matches)
+// Mobil/nettbrett (finger som primærpeker) får touch-UI fra start.
+// Laptop med berøringsskjerm starter med tastaturoppsett, men bytter
+// i det øyeblikket skjermen faktisk berøres.
+// Forseres med #playtouch for testing i DevTools-emulering.
+let isTouch = (window.matchMedia && matchMedia('(pointer: coarse)').matches)
   || location.hash.includes('touch');
 const stick = { id: null, bx: 0, by: 0, dx: 0, dy: 0 };
 const BTN_TOGGLE = { x: 288, y: 194, r: 20 };
@@ -352,6 +354,7 @@ function touchPos(e) {
 }
 
 cv.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'touch') isTouch = true;
   if (!isTouch) return;
   e.preventDefault();
   cv.setPointerCapture(e.pointerId);
