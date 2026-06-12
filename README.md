@@ -15,6 +15,7 @@ skru på TV-benken-klokka (3 W), lampa (10 W) og kjøleskapet (60 W).
 | Tast | Handling |
 |------|----------|
 | Piler / WASD | Løp |
+| Shift | Sprint (kort spurt, med nedkjøling) |
 | E / Mellomrom | Skru apparat av/på |
 | P | Pause |
 | M | Lyd av/på |

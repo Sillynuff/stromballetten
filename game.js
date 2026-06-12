@@ -124,6 +124,7 @@ const SFX = {
   blackout:() => { tone(600, 1.4, 'sawtooth', 0.16, 0, 40); },
   troll:   () => { tone(700, 0.05, 'triangle', 0.10); tone(500, 0.05, 'triangle', 0.10, 0.06); },
   saved:   () => { tone(784, 0.07, 'square', 0.11); tone(1175, 0.12, 'square', 0.11, 0.07); },
+  dash:    () => { tone(180, 0.16, 'square', 0.10, 0, 720); },
 };
 
 /* ---------------- APPARATER ---------------- */
@@ -162,7 +163,7 @@ const TICKER = [
 /* ---------------- TILSTAND ---------------- */
 let state = 'title'; // title | play | pause | over
 let appliances = [];
-let player = { x: 160, y: 180, vx: 0, vy: 0, anim: 0, face: 1, moving: false };
+let player = { x: 160, y: 180, vx: 0, vy: 0, anim: 0, face: 1, moving: false, sprintT: 0, sprintCd: 0 };
 let incoming = 0, nextTarget = null, warnT = 0, changeT = 0, lastWarnBeep = 99;
 let sinceChange = 0, hadImbalance = false, perfectAwarded = true;
 let stability = 100, score = 0, hiscore = 0, combo = 0;
@@ -231,7 +232,7 @@ function addSparks(a, n, col) {
 
 function reset() {
   appliances = mkAppliances();
-  player = { x: 160, y: 185, vx: 0, vy: 0, anim: 0, face: 1, moving: false };
+  player = { x: 160, y: 185, vx: 0, vy: 0, anim: 0, face: 1, moving: false, sprintT: 0, sprintCd: 0 };
   incoming = 0; nextTarget = null; warnT = 0; changeT = 4; lastWarnBeep = 99;
   sinceChange = 0; hadImbalance = false; perfectAwarded = true;
   stability = 100; score = 0; combo = 0;
@@ -265,6 +266,9 @@ window.addEventListener('keydown', (e) => {
   }
   if (state === 'play' && (k === 'e' || k === ' ')) {
     tryToggle();
+  }
+  if (state === 'play' && k === 'shift') {
+    trySprint();
   }
 });
 window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
@@ -305,6 +309,13 @@ function tryToggle() {
   addSparks(a, 3);
 }
 
+function trySprint() {
+  if (player.sprintCd > 0) return;
+  player.sprintT = 1.5;
+  player.sprintCd = 4;
+  SFX.dash();
+}
+
 /* ---------------- OPPDATERING ---------------- */
 function update(dt) {
   frame++;
@@ -322,10 +333,20 @@ function update(dt) {
   if (keys['arrowup'] || keys['w']) dy -= 1;
   if (keys['arrowdown'] || keys['s']) dy += 1;
   if (dx && dy) { dx *= 0.7071; dy *= 0.7071; }
-  const speed = 88;
+  if (player.sprintT > 0) player.sprintT -= dt;
+  if (player.sprintCd > 0) player.sprintCd -= dt;
+  const sprinting = player.sprintT > 0;
+  const speed = sprinting ? 150 : 88;
   player.moving = !!(dx || dy);
   if (dx) player.face = dx > 0 ? 1 : -1;
-  if (player.moving) player.anim += dt * 10;
+  if (player.moving) player.anim += dt * (sprinting ? 16 : 10);
+  if (sprinting && player.moving && frame % 3 === 0) {
+    particles.push({
+      x: player.x + rnd(-3, 3), y: player.y + rnd(0, 3),
+      vx: -dx * 30 + rnd(-8, 8), vy: -15 + rnd(-8, 8),
+      t: rnd(0.2, 0.35), col: '#b8ac98',
+    });
+  }
 
   moveAxis(dx * speed * dt, 0);
   moveAxis(0, dy * speed * dt);
@@ -966,7 +987,29 @@ function drawHUD() {
   ctx.strokeStyle = '#4a525c';
   ctx.strokeRect(bx - 0.5, by - 0.5, bw + 1, 6);
 
+  // Sprintindikator
+  const sx = 216, sy = VH - 9;
+  const sprinting = player.sprintT > 0;
+  const ready = player.sprintCd <= 0;
+  drawBolt(sx, sy - 2, ready || sprinting ? '#ffd040' : '#4a525c');
+  ctx.fillStyle = '#22262e';
+  ctx.fillRect(sx + 7, sy, 26, 3);
+  if (sprinting) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(sx + 7, sy, Math.round(26 * player.sprintT / 1.5), 3);
+  } else {
+    ctx.fillStyle = ready ? '#ffd040' : '#7a6830';
+    ctx.fillRect(sx + 7, sy, Math.round(26 * (1 - Math.max(0, player.sprintCd) / 4)), 3);
+  }
+
   if (muted) drawText('LYD AV (M)', VW - 6, VH - 22, '#5a6472', 1, 'right');
+}
+
+function drawBolt(x, y, col) {
+  ctx.fillStyle = col;
+  ctx.fillRect(x + 2, y, 2, 3);
+  ctx.fillRect(x + 1, y + 2, 3, 2);
+  ctx.fillRect(x + 2, y + 4, 2, 3);
 }
 
 /* --- Skjermer --- */
@@ -991,7 +1034,7 @@ function drawTitle() {
   drawText('FORBRUKET MATCHER PROGNOSEN.', VW / 2, 122, '#c8d0d8', 1, 'center');
   drawText('NORGE STOLER PÅ DEG.', VW / 2, 132, '#ffd040', 1, 'center');
 
-  drawText('PILER/WASD: LØP', VW / 2, 152, '#80e8ff', 1, 'center');
+  drawText('PILER/WASD: LØP   SHIFT: SPRINT', VW / 2, 152, '#80e8ff', 1, 'center');
   drawText('E ELLER MELLOMROM: SKRU AV/PÅ', VW / 2, 162, '#80e8ff', 1, 'center');
   drawText('P: PAUSE   M: LYD', VW / 2, 172, '#80e8ff', 1, 'center');
 
