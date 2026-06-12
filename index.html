@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strømballetten</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #0a0a12;
+    height: 100%;
+    overflow: hidden;
+    font-family: monospace;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    width: min(96vw, calc(92vh * 4 / 3));
+    aspect-ratio: 4 / 3;
+    background: #000;
+    box-shadow: 0 0 40px rgba(120, 200, 255, 0.15);
+  }
+  #footer {
+    color: #4a5568;
+    font-size: 12px;
+    letter-spacing: 1px;
+  }
+</style>
+</head>
+<body>
+<canvas id="c" width="320" height="240"></canvas>
+<div id="footer">STRØMBALLETTEN &mdash; inspirert av «Norsk sluttstrøm» (Uti vår hage)</div>
+<script src="game.js"></script>
+</body>
+</html>
