@@ -2,7 +2,7 @@
 <html lang="no">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <title>Strømballetten</title>
 <style>
   html, body {
@@ -31,6 +31,14 @@
     aspect-ratio: 4 / 3;
     background: #000;
     box-shadow: 0 0 60px rgba(120, 200, 255, 0.22);
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  @media (max-height: 520px), (max-width: 520px) {
+    #footer { display: none; }
+    canvas { width: min(100vw, calc(100vh * 4 / 3)); }
   }
   #crt {
     position: absolute;

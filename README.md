@@ -25,6 +25,10 @@ I tospillermodus deler dere nettmåleren — koordiner hvem som tar hva, og prø
 å ikke løpe i beina på hverandre. Prognosene kommer oftere og regnestykkene er
 større når dere er to.
 
+**På mobil:** venstre halvdel av skjermen er en flytende styrespak (legg
+fingeren der og dra), og nede til høyre ligger AV/PÅ-knappen og sprintknappen
+(lynet). Tospiller er forbeholdt tastatur.
+
 - Holder du nettet i ubalanse for lenge, tappes **NETT**-måleren — når den er tom
   blir hele landet mørklagt. Blackout!
 - Neste prognose varsles tre sekunder i forveien, så planlegg ruta.

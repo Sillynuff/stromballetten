@@ -337,6 +337,80 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 
+/* ---------------- TOUCH-KONTROLLER ---------------- */
+// Forseres med #playtouch for testing i DevTools-emulering
+const isTouch = ('ontouchstart' in window)
+  || (window.matchMedia && matchMedia('(pointer: coarse)').matches)
+  || location.hash.includes('touch');
+const stick = { id: null, bx: 0, by: 0, dx: 0, dy: 0 };
+const BTN_TOGGLE = { x: 288, y: 194, r: 20 };
+const BTN_SPRINT = { x: 242, y: 212, r: 13 };
+
+function touchPos(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * VW / r.width, y: (e.clientY - r.top) * VH / r.height };
+}
+
+cv.addEventListener('pointerdown', (e) => {
+  if (!isTouch) return;
+  e.preventDefault();
+  cv.setPointerCapture(e.pointerId);
+  audioInit();
+  const pos = touchPos(e);
+
+  if (state === 'title') {
+    // Første trykk velger, andre trykk på samme valg starter
+    for (let i = 0; i < 2; i++) {
+      if (pos.y >= 140 + i * 11 && pos.y < 151 + i * 11) {
+        if (menuSel === i) {
+          playerCount = i + 1;
+          reset(); state = 'play'; SFX.levelup();
+        } else {
+          menuSel = i; SFX.warn();
+        }
+      }
+    }
+    return;
+  }
+  if (state === 'over') {
+    if (blackoutT > 2.2) { reset(); state = 'play'; SFX.levelup(); }
+    return;
+  }
+  if (state !== 'play') return;
+
+  const dT = Math.hypot(pos.x - BTN_TOGGLE.x, pos.y - BTN_TOGGLE.y);
+  const dS = Math.hypot(pos.x - BTN_SPRINT.x, pos.y - BTN_SPRINT.y);
+  if (dT < BTN_TOGGLE.r + 6) {
+    tryToggle(players[0]);
+  } else if (dS < BTN_SPRINT.r + 6) {
+    trySprint(players[0]);
+  } else if (pos.x < 160 && stick.id === null) {
+    // Flytende styrespak: dukker opp der fingeren lander
+    stick.id = e.pointerId;
+    stick.bx = pos.x; stick.by = pos.y;
+    stick.dx = 0; stick.dy = 0;
+  }
+});
+
+cv.addEventListener('pointermove', (e) => {
+  if (e.pointerId !== stick.id) return;
+  e.preventDefault();
+  const pos = touchPos(e);
+  let dx = (pos.x - stick.bx) / 14, dy = (pos.y - stick.by) / 14;
+  const len = Math.hypot(dx, dy);
+  if (len > 1) { dx /= len; dy /= len; }
+  if (len < 0.25) { dx = 0; dy = 0; }
+  stick.dx = dx; stick.dy = dy;
+});
+
+function endPointer(e) {
+  if (e.pointerId === stick.id) {
+    stick.id = null; stick.dx = 0; stick.dy = 0;
+  }
+}
+cv.addEventListener('pointerup', endPointer);
+cv.addEventListener('pointercancel', endPointer);
+
 function nearestAppliance(p) {
   let best = null, bestD = 1e9;
   for (const a of appliances) {
@@ -417,7 +491,9 @@ function update(dt) {
     if ((wasd && keys['d']) || (arrows && keys['arrowright'])) dx += 1;
     if ((wasd && keys['w']) || (arrows && keys['arrowup'])) dy -= 1;
     if ((wasd && keys['s']) || (arrows && keys['arrowdown'])) dy += 1;
-    if (dx && dy) { dx *= 0.7071; dy *= 0.7071; }
+    if (p.idx === 0 && stick.id !== null) { dx += stick.dx; dy += stick.dy; }
+    const mlen = Math.hypot(dx, dy);
+    if (mlen > 1) { dx /= mlen; dy /= mlen; }
     if (p.sprintT > 0) p.sprintT -= dt;
     if (p.sprintCd > 0) p.sprintCd -= dt;
     const sprinting = p.sprintT > 0;
@@ -677,6 +753,7 @@ function render() {
   drawStatus();
   drawHUD();
   drawFloats();
+  drawTouchControls();
 
   if (flashT > 0) {
     ctx.fillStyle = 'rgba(140,230,255,' + Math.min(0.35, flashT * 2.5) + ')';
@@ -1173,6 +1250,39 @@ function drawBolt(x, y, col) {
   ctx.fillRect(x + 2, y + 4, 2, 3);
 }
 
+function drawTouchControls() {
+  if (!isTouch || state !== 'play') return;
+  // Styrespak (kun synlig mens den brukes)
+  if (stick.id !== null) {
+    ctx.globalAlpha = 0.5;
+    ctx.strokeStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(stick.bx, stick.by, 16, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(stick.bx + stick.dx * 11, stick.by + stick.dy * 11, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+  // AV/PÅ-knapp
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = '#1c2026';
+  ctx.beginPath(); ctx.arc(BTN_TOGGLE.x, BTN_TOGGLE.y, BTN_TOGGLE.r, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#8a96a4';
+  ctx.beginPath(); ctx.arc(BTN_TOGGLE.x, BTN_TOGGLE.y, BTN_TOGGLE.r, 0, Math.PI * 2); ctx.stroke();
+  ctx.globalAlpha = 0.9;
+  drawText('AV/PÅ', BTN_TOGGLE.x, BTN_TOGGLE.y - 2, '#ffffff', 1, 'center');
+  // Sprintknapp
+  ctx.globalAlpha = 0.5;
+  ctx.fillStyle = '#1c2026';
+  ctx.beginPath(); ctx.arc(BTN_SPRINT.x, BTN_SPRINT.y, BTN_SPRINT.r, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#8a96a4';
+  ctx.beginPath(); ctx.arc(BTN_SPRINT.x, BTN_SPRINT.y, BTN_SPRINT.r, 0, Math.PI * 2); ctx.stroke();
+  ctx.globalAlpha = 0.9;
+  drawBolt(BTN_SPRINT.x - 2, BTN_SPRINT.y - 4,
+    players[0].sprintCd <= 0 || players[0].sprintT > 0 ? '#ffd040' : '#4a525c');
+  ctx.globalAlpha = 1;
+}
+
 /* --- Skjermer --- */
 function drawTitle() {
   ctx.fillStyle = 'rgba(6,8,14,0.88)';
@@ -1214,7 +1324,9 @@ function drawTitle() {
     drawText('S2: PILER + ENTER + H.SHIFT', VW / 2, 186, '#80e8ff', 1, 'center');
   }
 
-  if ((frame >> 5) % 2 === 0) drawText('TRYKK ENTER FOR Å STARTE VAKTA', VW / 2, 202, '#ffffff', 1, 'center');
+  if ((frame >> 5) % 2 === 0) {
+    drawText(isTouch ? 'TRYKK TO GANGER PÅ ET VALG' : 'TRYKK ENTER FOR Å STARTE VAKTA', VW / 2, 202, '#ffffff', 1, 'center');
+  }
   if (hiscore > 0) drawText('REKORD: ' + hiscore, VW / 2, 214, '#ffe060', 1, 'center');
 }
 
@@ -1243,12 +1355,12 @@ function drawGameOver() {
     drawText('REKORD: ' + hiscore, VW / 2, 152, '#8a96a4', 1, 'center');
   }
   if (blackoutT > 2.2 && (frame >> 5) % 2 === 0) {
-    drawText('TRYKK R FOR NY VAKT', VW / 2, 180, '#ffffff', 1, 'center');
+    drawText(isTouch ? 'TRYKK PÅ SKJERMEN FOR NY VAKT' : 'TRYKK R FOR NY VAKT', VW / 2, 180, '#ffffff', 1, 'center');
   }
 }
 
 /* ---------------- HOVEDLØKKE ---------------- */
-if (location.hash === '#play') { reset(); state = 'play'; }
+if (location.hash === '#play' || location.hash === '#playtouch') { reset(); state = 'play'; }
 if (location.hash === '#play2') { playerCount = 2; reset(); state = 'play'; }
 
 let last = performance.now();
