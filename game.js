@@ -938,9 +938,10 @@ function drawPanel() {
 }
 
 function drawStatus() {
-  // Balansestatus øverst på skjermen (under mobilbaren hvis den vises)
+  // Balansestatus på desktop — på mobil vises alt i minipanelet
+  if (zoom > 1) return;
   if (state !== 'play' && state !== 'pause') return;
-  const y = zoom > 1 ? 26 : 43;
+  const y = 43;
   const d = diff();
   if (incoming === 0) {
     drawText('VENTER PÅ PROGNOSE...', SW / 2, y, '#8a96a4', 1, 'center');
@@ -954,18 +955,44 @@ function drawStatus() {
 }
 
 function drawMobileBar() {
-  // Kompakt topplinje på mobil: veggpanelet kan være utenfor kamera
+  // Skjermfast minipanel på mobil: erstatter veggpanelet som kan
+  // være utenfor kamera. INN/BRUK med store tall, frekvens og
+  // varsel/balansestatus i midten.
   if (zoom <= 1) return;
   if (state !== 'play' && state !== 'pause') return;
-  ctx.fillStyle = 'rgba(8,10,14,0.85)';
-  ctx.fillRect(0, 0, SW, 20);
+  ctx.fillStyle = '#0a0c12';
+  ctx.fillRect(0, 0, SW, 26);
+  ctx.fillStyle = '#272c34';
+  ctx.fillRect(0, 25, SW, 1);
+
+  // INN til venstre
+  drawText('INN:', 6, 3, '#8a96a4', 1);
   const innCol = changeFlash > 0 && Math.floor(changeFlash * 10) % 2 === 0 ? '#ffffff' : '#ffd040';
-  drawText('INN ' + incoming + 'W', 6, 4, innCol, 1);
+  drawText(incoming + 'W', 6, 10, innCol, 2);
+
+  // BRUK til høyre
+  drawText('BRUK:', SW - 6, 3, '#8a96a4', 1, 'right');
   const d = diff();
-  const useCol = incoming === 0 ? '#6a7684' : (d === 0 ? '#60ff80' : (d > 0 ? '#ff6060' : '#60b0ff'));
-  drawText('BRUK ' + consumption() + 'W', SW - 6, 4, useCol, 1, 'right');
-  if (nextTarget !== null && Math.floor(warnT * 6) % 2 === 0) {
-    drawText('NESTE: ' + nextTarget + 'W OM ' + Math.ceil(warnT), SW / 2, 13, '#ffd040', 1, 'center');
+  const useCol = incoming === 0 ? '#9aa4b0' : (d === 0 ? '#60ff80' : (d > 0 ? '#ff6060' : '#60b0ff'));
+  drawText(consumption() + 'W', SW - 6, 10, useCol, 2, 'right');
+
+  // Frekvens øverst i midten
+  const hz = incoming === 0 ? 50 : clamp(50 - d * 0.005, 48, 52);
+  drawText(hz.toFixed(2) + 'HZ', SW / 2, 3, Math.abs(hz - 50) < 0.05 ? '#60ff80' : '#ff9060', 1, 'center');
+
+  // Varsel eller balansestatus i midten
+  if (nextTarget !== null) {
+    if (Math.floor(warnT * 6) % 2 === 0) {
+      drawText('NESTE: ' + nextTarget + 'W OM ' + Math.ceil(warnT), SW / 2, 13, '#ffd040', 1, 'center');
+    }
+  } else if (incoming === 0) {
+    drawText('VENTER...', SW / 2, 13, '#8a96a4', 1, 'center');
+  } else if (d === 0) {
+    drawText('I BALANSE!', SW / 2, 13, (frame >> 4) % 2 === 0 ? '#60ff80' : '#a8ffc0', 1, 'center');
+  } else if (d < 0) {
+    drawText((-d) + 'W MER!', SW / 2, 13, '#60b0ff', 1, 'center');
+  } else {
+    drawText(d + 'W MINDRE!', SW / 2, 13, '#ff6060', 1, 'center');
   }
 }
 
