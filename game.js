@@ -190,14 +190,14 @@ function consumption() {
 }
 function diff() { return consumption() - incoming; }
 
-function changeInterval() { return Math.max(6, 16 - level * 1.2); }
+function changeInterval() { return Math.max(8, 18 - level * 1.2); }
 
 function levelSubsetRange() {
   if (level <= 1) return [1, 2];
-  if (level === 2) return [2, 3];
-  if (level === 3) return [2, 4];
-  if (level === 4) return [3, 5];
-  return [3, 6];
+  if (level <= 3) return [2, 3];
+  if (level === 4) return [2, 4];
+  if (level === 5) return [3, 4];
+  return [3, 5];
 }
 
 function genTarget() {
@@ -341,7 +341,7 @@ function update(dt) {
     changeT -= dt;
     if (changeT <= 0) {
       const val = genTarget();
-      const surgeP = level >= 3 ? Math.min(0.35, 0.1 * (level - 2)) : 0;
+      const surgeP = level >= 4 ? Math.min(0.25, 0.08 * (level - 3)) : 0;
       if (Math.random() < surgeP) {
         // Lynnedslag: ingen forvarsel!
         applyTarget(val, true);
@@ -370,12 +370,15 @@ function update(dt) {
   if (!perfectAwarded && sinceChange >= 5) { combo = 0; perfectAwarded = true; }
 
   // --- Stabilitet og poeng ---
+  // 3 sekunders frist etter hver prognose: du må rekke å løpe dit.
   if (incoming > 0) {
     if (d === 0) {
-      stability = Math.min(100, stability + 7 * dt);
+      stability = Math.min(100, stability + 10 * dt);
       score += 12 * level * dt;
-    } else {
-      const drain = (1.5 + Math.abs(d) * 0.018) * (1 + 0.06 * (level - 1));
+    } else if (sinceChange > 3) {
+      let drain = (1.0 + Math.abs(d) * 0.012) * (1 + 0.05 * (level - 1));
+      // Fastlåst apparat er ikke din feil: halvert tapping mens det står på.
+      if (appliances.some(a => a.jam > 0)) drain *= 0.5;
       stability -= drain * dt;
     }
   }
@@ -387,7 +390,7 @@ function update(dt) {
 
   // --- Nivå ---
   levelT += dt;
-  if (levelT >= 28 && level < 9) {
+  if (levelT >= 35 && level < 9) {
     level++; levelT = 0;
     banner = 'NIVÅ ' + level + '!'; bannerT = 2;
     SFX.levelup();
@@ -397,11 +400,11 @@ function update(dt) {
   if (level >= 2) {
     chaosT -= dt;
     if (chaosT <= 0) {
-      chaosT = rnd(9, 16) - level * 0.5;
+      chaosT = rnd(12, 20) - level * 0.5;
       const candidates = appliances.filter(a => a.on && !a.jam && !a.spark);
       if (candidates.length) {
         const a = pick(candidates);
-        a.spark = 4;
+        a.spark = 5;
         addFloat(a.x + a.w / 2, a.y - 6, 'GNISTRER!', '#ffd040');
       }
     }
@@ -413,8 +416,8 @@ function update(dt) {
       if (frame % 8 === 0) { addSparks(a, 2); SFX.spark(); }
       if (a.spark <= 0) {
         a.spark = 0;
-        a.jam = 8;
-        stability -= 12;
+        a.jam = 6;
+        stability -= 8;
         shakeT = 0.4; shakeMag = 3;
         SFX.jam();
         addFloat(a.x + a.w / 2, a.y - 6, 'KORTSLUTNING! LÅST PÅ!', '#ff6060');
@@ -427,7 +430,7 @@ function update(dt) {
   }
 
   // --- Trollet i nettet (skrur på ting selv) ---
-  if (level >= 4) {
+  if (level >= 5) {
     trollT -= dt;
     if (trollT <= 0) {
       trollT = rnd(8, 14);
