@@ -12,13 +12,18 @@ watt som kommer inn — løp rundt i rommet og skru husholdningsapparater av og 
 slik at forbruket matcher prognosen eksakt. Kommer det inn 73 W, må du f.eks.
 skru på TV-benken-klokka (3 W), lampa (10 W) og kjøleskapet (60 W).
 
-| Tast | Handling |
-|------|----------|
-| Piler / WASD | Løp |
-| Shift | Sprint (kort spurt, med nedkjøling) |
-| E / Mellomrom | Skru apparat av/på |
-| P | Pause |
-| M | Lyd av/på |
+Velg én eller to spillere på startmenyen (pil opp/ned + Enter).
+
+| Tast | En spiller | Spiller 1 | Spiller 2 |
+|------|-----------|-----------|-----------|
+| Løp | Piler / WASD | WASD | Piler |
+| Skru av/på | E / Mellomrom | E / Mellomrom | Enter |
+| Sprint | Shift | Venstre Shift | Høyre Shift |
+| Pause / Lyd | P / M | P / M | P / M |
+
+I tospillermodus deler dere nettmåleren — koordiner hvem som tar hva, og prøv
+å ikke løpe i beina på hverandre. Prognosene kommer oftere og regnestykkene er
+større når dere er to.
 
 - Holder du nettet i ubalanse for lenge, tappes **NETT**-måleren — når den er tom
   blir hele landet mørklagt. Blackout!

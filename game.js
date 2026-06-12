@@ -195,7 +195,18 @@ const TICKER = [
 /* ---------------- TILSTAND ---------------- */
 let state = 'title'; // title | play | pause | over
 let appliances = [];
-let player = { x: 160, y: 180, vx: 0, vy: 0, anim: 0, face: 1, moving: false, sprintT: 0, sprintCd: 0 };
+let playerCount = 1;
+let menuSel = 0;
+
+function mkPlayer(x, y, idx) {
+  return {
+    x, y, idx, anim: 0, face: 1, moving: false, sprintT: 0, sprintCd: 0,
+    cols: idx === 0
+      ? { singlet: '#22262a', hair: '#2c2018', skin: '#e8b088', pants: '#3a5890' }
+      : { singlet: '#e8e8e0', hair: '#d8b048', skin: '#e8b088', pants: '#705038' },
+  };
+}
+let players = [mkPlayer(160, 185, 0)];
 let incoming = 0, nextTarget = null, warnT = 0, changeT = 0, lastWarnBeep = 99;
 let sinceChange = 0, hadImbalance = false, perfectAwarded = true;
 let stability = 100, score = 0, hiscore = 0, combo = 0;
@@ -224,14 +235,20 @@ function consumption() {
 }
 function diff() { return consumption() - incoming; }
 
-function changeInterval() { return Math.max(8, 18 - level * 1.2); }
+function changeInterval() {
+  return Math.max(8, 18 - level * 1.2) * (playerCount === 2 ? 0.85 : 1);
+}
 
 function levelSubsetRange() {
-  if (level <= 1) return [1, 2];
-  if (level <= 3) return [2, 3];
-  if (level === 4) return [2, 4];
-  if (level === 5) return [3, 4];
-  return [3, 5];
+  let r;
+  if (level <= 1) r = [1, 2];
+  else if (level <= 3) r = [2, 3];
+  else if (level === 4) r = [2, 4];
+  else if (level === 5) r = [3, 4];
+  else r = [3, 5];
+  // To par hender takler større regnestykker
+  if (playerCount === 2) r = [Math.min(r[0] + 1, r[1]), Math.min(6, r[1] + 1)];
+  return r;
 }
 
 function genTarget() {
@@ -265,7 +282,9 @@ function addSparks(a, n, col) {
 
 function reset() {
   appliances = mkAppliances();
-  player = { x: 160, y: 185, vx: 0, vy: 0, anim: 0, face: 1, moving: false, sprintT: 0, sprintCd: 0 };
+  players = playerCount === 2
+    ? [mkPlayer(130, 185, 0), mkPlayer(190, 185, 1)]
+    : [mkPlayer(160, 185, 0)];
   incoming = 0; nextTarget = null; warnT = 0; changeT = 4; lastWarnBeep = 99;
   sinceChange = 0; hadImbalance = false; perfectAwarded = true;
   stability = 100; score = 0; combo = 0;
@@ -289,8 +308,16 @@ window.addEventListener('keydown', (e) => {
 
   if (k === 'm') { muted = !muted; return; }
 
-  if (state === 'title' && (k === 'enter' || k === ' ')) {
-    reset(); state = 'play'; SFX.levelup(); return;
+  if (state === 'title') {
+    if (k === 'arrowup' || k === 'arrowdown' || k === 'w' || k === 's') {
+      menuSel = 1 - menuSel; SFX.warn();
+    } else if (k === '1' || k === '2' || k === 'enter' || k === ' ') {
+      if (k === '1') menuSel = 0;
+      if (k === '2') menuSel = 1;
+      playerCount = menuSel + 1;
+      reset(); state = 'play'; SFX.levelup();
+    }
+    return;
   }
   if (state === 'over' && k === 'r') {
     reset(); state = 'play'; SFX.levelup(); return;
@@ -298,31 +325,34 @@ window.addEventListener('keydown', (e) => {
   if (k === 'p' && (state === 'play' || state === 'pause')) {
     state = state === 'play' ? 'pause' : 'play'; return;
   }
-  if (state === 'play' && (k === 'e' || k === ' ')) {
-    tryToggle();
-  }
-  if (state === 'play' && k === 'shift') {
-    trySprint();
+  if (state === 'play') {
+    if (k === 'e' || k === ' ') tryToggle(players[0]);
+    if (playerCount === 2 && k === 'enter') tryToggle(players[1]);
+    if (k === 'shift') {
+      // Venstre Shift = spiller 1, høyre Shift = spiller 2
+      const p = playerCount === 2 && e.location === 2 ? players[1] : players[0];
+      trySprint(p);
+    }
   }
 });
 window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 
-function nearestAppliance() {
+function nearestAppliance(p) {
   let best = null, bestD = 1e9;
   for (const a of appliances) {
     const ex = 10;
-    if (player.x >= a.x - ex && player.x <= a.x + a.w + ex &&
-        player.y >= a.y - ex && player.y <= a.y + a.h + ex) {
+    if (p.x >= a.x - ex && p.x <= a.x + a.w + ex &&
+        p.y >= a.y - ex && p.y <= a.y + a.h + ex) {
       const cx = a.x + a.w / 2, cy = a.y + a.h / 2;
-      const d = Math.abs(player.x - cx) + Math.abs(player.y - cy);
+      const d = Math.abs(p.x - cx) + Math.abs(p.y - cy);
       if (d < bestD) { bestD = d; best = a; }
     }
   }
   return best;
 }
 
-function tryToggle() {
-  const a = nearestAppliance();
+function tryToggle(p) {
+  const a = nearestAppliance(p);
   if (!a) return;
   if (a.jam > 0) {
     SFX.denied();
@@ -344,10 +374,10 @@ function tryToggle() {
   addSparks(a, 6);
 }
 
-function trySprint() {
-  if (player.sprintCd > 0) return;
-  player.sprintT = 1.5;
-  player.sprintCd = 4;
+function trySprint(p) {
+  if (p.sprintCd > 0) return;
+  p.sprintT = 1.5;
+  p.sprintCd = 4;
   SFX.dash();
 }
 
@@ -379,31 +409,35 @@ function update(dt) {
   playTime += dt;
 
   // --- Spillerbevegelse ---
-  let dx = 0, dy = 0;
-  if (keys['arrowleft'] || keys['a']) dx -= 1;
-  if (keys['arrowright'] || keys['d']) dx += 1;
-  if (keys['arrowup'] || keys['w']) dy -= 1;
-  if (keys['arrowdown'] || keys['s']) dy += 1;
-  if (dx && dy) { dx *= 0.7071; dy *= 0.7071; }
-  if (player.sprintT > 0) player.sprintT -= dt;
-  if (player.sprintCd > 0) player.sprintCd -= dt;
-  const sprinting = player.sprintT > 0;
-  const speed = sprinting ? 150 : 88;
-  player.moving = !!(dx || dy);
-  if (dx) player.face = dx > 0 ? 1 : -1;
-  if (player.moving) player.anim += dt * (sprinting ? 16 : 10);
-  if (sprinting && player.moving && frame % 3 === 0) {
-    particles.push({
-      x: player.x + rnd(-3, 3), y: player.y + rnd(0, 3),
-      vx: -dx * 30 + rnd(-8, 8), vy: -15 + rnd(-8, 8),
-      t: rnd(0.2, 0.35), col: '#b8ac98',
-    });
+  for (const p of players) {
+    let dx = 0, dy = 0;
+    const wasd = playerCount === 1 || p.idx === 0;
+    const arrows = playerCount === 1 || p.idx === 1;
+    if ((wasd && keys['a']) || (arrows && keys['arrowleft'])) dx -= 1;
+    if ((wasd && keys['d']) || (arrows && keys['arrowright'])) dx += 1;
+    if ((wasd && keys['w']) || (arrows && keys['arrowup'])) dy -= 1;
+    if ((wasd && keys['s']) || (arrows && keys['arrowdown'])) dy += 1;
+    if (dx && dy) { dx *= 0.7071; dy *= 0.7071; }
+    if (p.sprintT > 0) p.sprintT -= dt;
+    if (p.sprintCd > 0) p.sprintCd -= dt;
+    const sprinting = p.sprintT > 0;
+    const speed = sprinting ? 150 : 88;
+    p.moving = !!(dx || dy);
+    if (dx) p.face = dx > 0 ? 1 : -1;
+    if (p.moving) p.anim += dt * (sprinting ? 16 : 10);
+    if (sprinting && p.moving && frame % 3 === 0) {
+      particles.push({
+        x: p.x + rnd(-3, 3), y: p.y + rnd(0, 3),
+        vx: -dx * 30 + rnd(-8, 8), vy: -15 + rnd(-8, 8),
+        t: rnd(0.2, 0.35), col: '#b8ac98',
+      });
+    }
+    moveAxis(p, dx * speed * dt, 0);
+    moveAxis(p, 0, dy * speed * dt);
+    p.x = clamp(p.x, 12, 308);
+    p.y = clamp(p.y, 52, 220);
   }
-
-  moveAxis(dx * speed * dt, 0);
-  moveAxis(0, dy * speed * dt);
-  player.x = clamp(player.x, 12, 308);
-  player.y = clamp(player.y, 52, 220);
+  if (players.length === 2) separatePlayers();
 
   // --- Prognose / mål ---
   sinceChange += dt;
@@ -438,15 +472,19 @@ function update(dt) {
     const bonus = 30 * level + 10 * (combo - 1);
     score += bonus;
     SFX.perfekt();
-    addFloat(player.x, player.y - 14, combo > 1 ? 'BALLETT X' + combo + '! +' + bonus : 'PERFEKT! +' + bonus, '#80e8ff');
+    const fx = players.reduce((s, p) => s + p.x, 0) / players.length;
+    const fy = players.reduce((s, p) => s + p.y, 0) / players.length;
+    addFloat(fx, fy - 14, combo > 1 ? 'BALLETT X' + combo + '! +' + bonus : 'PERFEKT! +' + bonus, '#80e8ff');
     flashT = 0.12;
     scoreFlashT = 0.35;
-    for (let i = 0; i < 14; i++) {
-      particles.push({
-        x: player.x, y: player.y - 8,
-        vx: rnd(-60, 60), vy: rnd(-90, -20),
-        t: rnd(0.4, 0.8), col: pick(['#80e8ff', '#ffe060', '#60ff80', '#ff80c0']),
-      });
+    for (const p of players) {
+      for (let i = 0; i < 10; i++) {
+        particles.push({
+          x: p.x, y: p.y - 8,
+          vx: rnd(-60, 60), vy: rnd(-90, -20),
+          t: rnd(0.4, 0.8), col: pick(['#80e8ff', '#ffe060', '#60ff80', '#ff80c0']),
+        });
+      }
     }
   }
   if (!perfectAwarded && sinceChange >= 5) { combo = 0; perfectAwarded = true; }
@@ -589,16 +627,34 @@ function gameOver() {
   }
 }
 
-function moveAxis(mx, my) {
-  player.x += mx; player.y += my;
+function moveAxis(p, mx, my) {
+  p.x += mx; p.y += my;
   const pw = 4, ph = 4; // halv bredde/høyde på føttene
   for (const a of appliances) {
-    if (player.x + pw > a.x && player.x - pw < a.x + a.w &&
-        player.y + ph > a.y && player.y - ph < a.y + a.h) {
-      if (mx > 0) player.x = a.x - pw;
-      else if (mx < 0) player.x = a.x + a.w + pw;
-      if (my > 0) player.y = a.y - ph;
-      else if (my < 0) player.y = a.y + a.h + ph;
+    if (p.x + pw > a.x && p.x - pw < a.x + a.w &&
+        p.y + ph > a.y && p.y - ph < a.y + a.h) {
+      if (mx > 0) p.x = a.x - pw;
+      else if (mx < 0) p.x = a.x + a.w + pw;
+      if (my > 0) p.y = a.y - ph;
+      else if (my < 0) p.y = a.y + a.h + ph;
+    }
+  }
+}
+
+function separatePlayers() {
+  const [a, b] = players;
+  const dx = b.x - a.x, dy = b.y - a.y;
+  if (Math.abs(dx) < 8 && Math.abs(dy) < 8) {
+    if (Math.abs(dx) > Math.abs(dy)) {
+      const push = ((8 - Math.abs(dx)) / 2) * (dx >= 0 ? 1 : -1);
+      a.x -= push; b.x += push;
+    } else {
+      const push = ((8 - Math.abs(dy)) / 2) * (dy >= 0 ? 1 : -1);
+      a.y -= push; b.y += push;
+    }
+    for (const p of players) {
+      p.x = clamp(p.x, 12, 308);
+      p.y = clamp(p.y, 52, 220);
     }
   }
 }
@@ -616,7 +672,7 @@ function render() {
   drawPanel();
   for (const a of appliances) drawAppliance(a);
   drawApplianceLabels();
-  drawPlayer();
+  players.slice().sort((a, b) => a.y - b.y).forEach(drawPlayer);
   drawParticles();
   drawStatus();
   drawHUD();
@@ -985,32 +1041,43 @@ function box(x, y, w, h, light, dark) {
 }
 
 function drawApplianceLabels() {
-  const near = state === 'play' ? nearestAppliance() : null;
+  const nears = state === 'play' ? players.map(p => nearestAppliance(p)) : [];
+  const hiCols = ['#ffffff', '#80e8ff'];
   for (const a of appliances) {
     const below = a.y < 60;
     const ly = below ? a.y + a.h + 2 : a.y - 7;
     const col = a.on ? '#60ff80' : '#9aa4b0';
     drawText(a.watt + 'W', a.x + a.w / 2, ly, col, 1, 'center');
-    if (a === near) {
-      // Marker valgt apparat
-      ctx.strokeStyle = '#ffffff';
-      if ((frame >> 3) % 2 === 0) ctx.strokeRect(a.x - 1.5, a.y - 1.5, a.w + 3, a.h + 3);
+    for (let i = 0; i < nears.length; i++) {
+      if (a === nears[i] && (frame >> 3) % 2 === 0) {
+        ctx.strokeStyle = hiCols[i];
+        ctx.strokeRect(a.x - 1.5, a.y - 1.5, a.w + 3, a.h + 3);
+      }
     }
   }
-  if (near) {
-    const label = near.name + ' ' + near.watt + 'W [E: ' + (near.on ? 'AV' : 'PÅ') + ']';
-    drawText(label, VW / 2, VH - 24, '#ffffff', 1, 'center');
+  const toggleKey = ['E', 'ENTER'];
+  if (playerCount === 1) {
+    if (nears[0]) {
+      const label = nears[0].name + ' ' + nears[0].watt + 'W [E: ' + (nears[0].on ? 'AV' : 'PÅ') + ']';
+      drawText(label, VW / 2, VH - 24, '#ffffff', 1, 'center');
+    }
+  } else {
+    for (let i = 0; i < nears.length; i++) {
+      if (!nears[i]) continue;
+      const label = nears[i].name + ' [' + toggleKey[i] + ': ' + (nears[i].on ? 'AV' : 'PÅ') + ']';
+      drawText(label, i === 0 ? 80 : 240, VH - 24, hiCols[i], 1, 'center');
+    }
   }
 }
 
-function drawPlayer() {
-  const px = Math.round(player.x), py = Math.round(player.y);
-  const step = player.moving ? Math.floor(player.anim) % 2 : 0;
+function drawPlayer(p) {
+  const px = Math.round(p.x), py = Math.round(p.y);
+  const step = p.moving ? Math.floor(p.anim) % 2 : 0;
   // Skygge
   ctx.fillStyle = 'rgba(0,0,0,0.3)';
   ctx.fillRect(px - 4, py + 2, 8, 3);
   // Bein
-  ctx.fillStyle = '#3a5890';
+  ctx.fillStyle = p.cols.pants;
   if (step === 0) {
     ctx.fillRect(px - 3, py - 2, 3, 6);
     ctx.fillRect(px + 1, py - 2, 3, 6);
@@ -1018,24 +1085,24 @@ function drawPlayer() {
     ctx.fillRect(px - 3, py - 3, 3, 6);
     ctx.fillRect(px + 1, py - 1, 3, 6);
   }
-  // Kropp (svart singlet, som i sketsjen)
-  ctx.fillStyle = '#22262a';
+  // Kropp (singlet, som i sketsjen)
+  ctx.fillStyle = p.cols.singlet;
   ctx.fillRect(px - 4, py - 9, 8, 7);
   // Armer
-  ctx.fillStyle = '#e8b088';
+  ctx.fillStyle = p.cols.skin;
   ctx.fillRect(px - 6, py - 9 + (step ? 1 : 0), 2, 5);
   ctx.fillRect(px + 4, py - 9 + (step ? 0 : 1), 2, 5);
   // Hode
-  ctx.fillStyle = '#e8b088';
+  ctx.fillStyle = p.cols.skin;
   ctx.fillRect(px - 3, py - 15, 6, 6);
   // Hår
-  ctx.fillStyle = '#2c2018';
+  ctx.fillStyle = p.cols.hair;
   ctx.fillRect(px - 3, py - 16, 6, 2);
   ctx.fillRect(px - 4, py - 15, 1, 3);
   ctx.fillRect(px + 3, py - 15, 1, 3);
   // Øyne
   ctx.fillStyle = '#101418';
-  if (player.face > 0) ctx.fillRect(px + 1, py - 13, 1, 1);
+  if (p.face > 0) ctx.fillRect(px + 1, py - 13, 1, 1);
   else ctx.fillRect(px - 2, py - 13, 1, 1);
 }
 
@@ -1071,22 +1138,32 @@ function drawHUD() {
   ctx.strokeStyle = '#4a525c';
   ctx.strokeRect(bx - 0.5, by - 0.5, bw + 1, 6);
 
-  // Sprintindikator
-  const sx = 216, sy = VH - 9;
-  const sprinting = player.sprintT > 0;
-  const ready = player.sprintCd <= 0;
-  drawBolt(sx, sy - 2, ready || sprinting ? '#ffd040' : '#4a525c');
-  ctx.fillStyle = '#22262e';
-  ctx.fillRect(sx + 7, sy, 26, 3);
-  if (sprinting) {
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(sx + 7, sy, Math.round(26 * player.sprintT / 1.5), 3);
+  // Sprintindikator(er)
+  if (playerCount === 1) {
+    drawSprintMeter(players[0], 216, 26, '');
   } else {
-    ctx.fillStyle = ready ? '#ffd040' : '#7a6830';
-    ctx.fillRect(sx + 7, sy, Math.round(26 * (1 - Math.max(0, player.sprintCd) / 4)), 3);
+    drawSprintMeter(players[0], 206, 18, '1');
+    drawSprintMeter(players[1], 244, 18, '2');
   }
 
   if (muted) drawText('LYD AV (M)', VW - 6, VH - 22, '#5a6472', 1, 'right');
+}
+
+function drawSprintMeter(p, sx, barW, label) {
+  const sy = VH - 9;
+  const sprinting = p.sprintT > 0;
+  const ready = p.sprintCd <= 0;
+  if (label) { drawText(label, sx - 1, sy - 2, '#9aa4b0', 1); sx += 5; }
+  drawBolt(sx, sy - 2, ready || sprinting ? '#ffd040' : '#4a525c');
+  ctx.fillStyle = '#22262e';
+  ctx.fillRect(sx + 7, sy, barW, 3);
+  if (sprinting) {
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(sx + 7, sy, Math.round(barW * p.sprintT / 1.5), 3);
+  } else {
+    ctx.fillStyle = ready ? '#ffd040' : '#7a6830';
+    ctx.fillRect(sx + 7, sy, Math.round(barW * (1 - Math.max(0, p.sprintCd) / 4)), 3);
+  }
 }
 
 function drawBolt(x, y, col) {
@@ -1118,11 +1195,26 @@ function drawTitle() {
   drawText('FORBRUKET MATCHER PROGNOSEN.', VW / 2, 122, '#c8d0d8', 1, 'center');
   drawText('NORGE STOLER PÅ DEG.', VW / 2, 132, '#ffd040', 1, 'center');
 
-  drawText('PILER/WASD: LØP   SHIFT: SPRINT', VW / 2, 152, '#80e8ff', 1, 'center');
-  drawText('E ELLER MELLOMROM: SKRU AV/PÅ', VW / 2, 162, '#80e8ff', 1, 'center');
-  drawText('P: PAUSE   M: LYD', VW / 2, 172, '#80e8ff', 1, 'center');
+  // Modusvalg
+  const opts = ['EN SPILLER', 'TO SPILLERE'];
+  for (let i = 0; i < 2; i++) {
+    const sel = menuSel === i;
+    drawText(opts[i], VW / 2, 146 + i * 11, sel ? '#ffffff' : '#5a6472', 1, 'center');
+    if (sel) {
+      drawBolt(VW / 2 - textW(opts[i], 1) / 2 - 11, 145 + i * 11,
+        (frame >> 4) % 2 === 0 ? '#ffd040' : '#7a6830');
+    }
+  }
 
-  if ((frame >> 5) % 2 === 0) drawText('TRYKK ENTER FOR Å STARTE VAKTA', VW / 2, 196, '#ffffff', 1, 'center');
+  if (menuSel === 0) {
+    drawText('WASD/PILER: LØP   SHIFT: SPRINT', VW / 2, 176, '#80e8ff', 1, 'center');
+    drawText('E/MELLOMROM: AV/PÅ   P: PAUSE', VW / 2, 186, '#80e8ff', 1, 'center');
+  } else {
+    drawText('S1: WASD + E + V.SHIFT', VW / 2, 176, '#80e8ff', 1, 'center');
+    drawText('S2: PILER + ENTER + H.SHIFT', VW / 2, 186, '#80e8ff', 1, 'center');
+  }
+
+  if ((frame >> 5) % 2 === 0) drawText('TRYKK ENTER FOR Å STARTE VAKTA', VW / 2, 202, '#ffffff', 1, 'center');
   if (hiscore > 0) drawText('REKORD: ' + hiscore, VW / 2, 214, '#ffe060', 1, 'center');
 }
 
@@ -1142,7 +1234,8 @@ function drawGameOver() {
 
   if ((frame >> 4) % 2 === 0) drawText('BLACKOUT!', VW / 2, 70, '#ff6060', 3, 'center');
   drawText('HELE LANDET ER MØRKLAGT.', VW / 2, 102, '#c8d0d8', 1, 'center');
-  drawText('DU HOLDT NETTET I ' + Math.floor(playTime) + ' SEKUNDER.', VW / 2, 114, '#c8d0d8', 1, 'center');
+  const subj = playerCount === 2 ? 'DERE' : 'DU';
+  drawText(subj + ' HOLDT NETTET I ' + Math.floor(playTime) + ' SEKUNDER.', VW / 2, 114, '#c8d0d8', 1, 'center');
   drawText('POENG: ' + Math.floor(score), VW / 2, 134, '#ffe060', 2, 'center');
   if (Math.floor(score) >= hiscore && hiscore > 0) {
     drawText('NY REKORD!', VW / 2, 152, '#60ff80', 1, 'center');
@@ -1156,6 +1249,7 @@ function drawGameOver() {
 
 /* ---------------- HOVEDLØKKE ---------------- */
 if (location.hash === '#play') { reset(); state = 'play'; }
+if (location.hash === '#play2') { playerCount = 2; reset(); state = 'play'; }
 
 let last = performance.now();
 function loop(now) {
