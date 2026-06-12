@@ -348,13 +348,58 @@ const stick = { id: null, bx: 0, by: 0, dx: 0, dy: 0 };
 const BTN_TOGGLE = { x: 288, y: 194, r: 20 };
 const BTN_SPRINT = { x: 242, y: 212, r: 13 };
 
-function touchPos(e) {
-  const r = cv.getBoundingClientRect();
-  return { x: (e.clientX - r.left) * VW / r.width, y: (e.clientY - r.top) * VH / r.height };
+/* ---------------- KAMERA OG SKJERM ----------------
+   Desktop: canvas er 320x240, zoom 1, fast kamera — som alltid.
+   Mobil: canvas fyller hele viewporten, kameraet zoomer inn og
+   følger spilleren. SW/SH er skjermstørrelsen i virtuelle piksler,
+   VW/VH er fortsatt verdens (rommets) størrelse. */
+let SW = VW, SH = VH, zoom = 1;
+const cam = { x: 0, y: 0 };
+
+function layoutCanvas() {
+  if (!isTouch) {
+    SW = VW; SH = VH; zoom = 1; cam.x = 0; cam.y = 0;
+    cv.width = SW; cv.height = SH;
+    cv.style.width = ''; cv.style.height = '';
+  } else {
+    const aspect = innerWidth / innerHeight;
+    if (aspect >= 1) { SH = 240; SW = Math.round(240 * aspect); }
+    else { SW = 240; SH = Math.round(240 / aspect); }
+    zoom = Math.max(SW / VW, SH / VH);
+    cv.width = SW; cv.height = SH;
+    cv.style.width = '100vw'; cv.style.height = '100vh';
+    BTN_TOGGLE.x = SW - 30; BTN_TOGGLE.y = SH - 48;
+    BTN_SPRINT.x = SW - 74; BTN_SPRINT.y = SH - 30;
+  }
+  ctx.imageSmoothingEnabled = false;
+}
+window.addEventListener('resize', layoutCanvas);
+
+function updateCamera(dt) {
+  const vw = SW / zoom, vh = SH / zoom;
+  let tx, ty;
+  if (state === 'play' || state === 'pause') {
+    const fx = players.reduce((s, p) => s + p.x, 0) / players.length;
+    const fy = players.reduce((s, p) => s + p.y, 0) / players.length;
+    tx = clamp(fx - vw / 2, 0, VW - vw);
+    ty = clamp(fy - vh / 2, 0, VH - vh);
+  } else {
+    tx = (VW - vw) / 2; ty = (VH - vh) / 2;
+  }
+  const k = Math.min(1, 10 * dt);
+  cam.x += (tx - cam.x) * k;
+  cam.y += (ty - cam.y) * k;
 }
 
+function touchPos(e) {
+  const r = cv.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * SW / r.width, y: (e.clientY - r.top) * SH / r.height };
+}
+
+function uiOy() { return Math.max(0, Math.floor((SH - 240) / 2)); }
+
 cv.addEventListener('pointerdown', (e) => {
-  if (e.pointerType === 'touch') isTouch = true;
+  if (e.pointerType === 'touch' && !isTouch) { isTouch = true; layoutCanvas(); }
   if (!isTouch) return;
   e.preventDefault();
   cv.setPointerCapture(e.pointerId);
@@ -363,8 +408,9 @@ cv.addEventListener('pointerdown', (e) => {
 
   if (state === 'title') {
     // Første trykk velger, andre trykk på samme valg starter
+    const oy = uiOy();
     for (let i = 0; i < 2; i++) {
-      if (pos.y >= 140 + i * 11 && pos.y < 151 + i * 11) {
+      if (pos.y >= oy + 140 + i * 11 && pos.y < oy + 151 + i * 11) {
         if (menuSel === i) {
           playerCount = i + 1;
           reset(); state = 'play'; SFX.levelup();
@@ -387,7 +433,7 @@ cv.addEventListener('pointerdown', (e) => {
     tryToggle(players[0]);
   } else if (dS < BTN_SPRINT.r + 6) {
     trySprint(players[0]);
-  } else if (pos.x < 160 && stick.id === null) {
+  } else if (pos.x < SW * 0.55 && stick.id === null) {
     // Flytende styrespak: dukker opp der fingeren lander
     stick.id = e.pointerId;
     stick.bx = pos.x; stick.by = pos.y;
@@ -741,43 +787,50 @@ function separatePlayers() {
 /* ---------------- TEGNING ---------------- */
 function render() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  ctx.clearRect(0, 0, VW, VH);
+  ctx.clearRect(0, 0, SW, SH);
 
+  // --- Verden (under kamera) ---
+  ctx.save();
   if (shakeT > 0) {
-    ctx.setTransform(1, 0, 0, 1, Math.round(rnd(-shakeMag, shakeMag)), Math.round(rnd(-shakeMag, shakeMag)));
+    ctx.translate(Math.round(rnd(-shakeMag, shakeMag)), Math.round(rnd(-shakeMag, shakeMag)));
   }
-
+  ctx.scale(zoom, zoom);
+  ctx.translate(-Math.round(cam.x), -Math.round(cam.y));
   drawRoom();
   drawPanel();
   for (const a of appliances) drawAppliance(a);
   drawApplianceLabels();
   players.slice().sort((a, b) => a.y - b.y).forEach(drawPlayer);
   drawParticles();
+  drawFloats();
+  ctx.restore();
+
+  // --- Skjermfast UI ---
+  drawMobileBar();
   drawStatus();
   drawHUD();
-  drawFloats();
+  drawContextLabel();
   drawTouchControls();
 
   if (flashT > 0) {
     ctx.fillStyle = 'rgba(140,230,255,' + Math.min(0.35, flashT * 2.5) + ')';
-    ctx.fillRect(-4, -4, VW + 8, VH + 8);
+    ctx.fillRect(0, 0, SW, SH);
   }
 
   if (flickerT > 0 && state === 'play') {
     ctx.fillStyle = 'rgba(0,0,10,0.4)';
-    ctx.fillRect(-4, -4, VW + 8, VH + 8);
+    ctx.fillRect(0, 0, SW, SH);
   }
 
   if (bannerT > 0) {
     const a = Math.min(1, bannerT);
     ctx.fillStyle = 'rgba(10,10,30,' + (0.75 * a) + ')';
-    ctx.fillRect(0, 104, VW, 28);
+    ctx.fillRect(0, SH / 2 - 16, SW, 28);
     if (Math.floor(bannerT * 8) % 2 === 0) {
-      drawText(banner, VW / 2, 114, '#ffe060', 2, 'center');
+      drawText(banner, SW / 2, SH / 2 - 6, '#ffe060', 2, 'center');
     }
   }
 
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
   if (state === 'title') drawTitle();
   if (state === 'pause') drawPause();
   if (state === 'over') drawGameOver();
@@ -885,17 +938,34 @@ function drawPanel() {
 }
 
 function drawStatus() {
-  // Balansestatus midt i rommet, rett under panelet
+  // Balansestatus øverst på skjermen (under mobilbaren hvis den vises)
   if (state !== 'play' && state !== 'pause') return;
+  const y = zoom > 1 ? 26 : 43;
   const d = diff();
   if (incoming === 0) {
-    drawText('VENTER PÅ PROGNOSE...', VW / 2, 43, '#8a96a4', 1, 'center');
+    drawText('VENTER PÅ PROGNOSE...', SW / 2, y, '#8a96a4', 1, 'center');
   } else if (d === 0) {
-    drawText('I BALANSE!', VW / 2, 43, (frame >> 4) % 2 === 0 ? '#60ff80' : '#a8ffc0', 1, 'center');
+    drawText('I BALANSE!', SW / 2, y, (frame >> 4) % 2 === 0 ? '#60ff80' : '#a8ffc0', 1, 'center');
   } else if (d < 0) {
-    drawText('BRUK ' + (-d) + 'W MER!', VW / 2, 43, '#60b0ff', 1, 'center');
+    drawText('BRUK ' + (-d) + 'W MER!', SW / 2, y, '#60b0ff', 1, 'center');
   } else {
-    drawText('BRUK ' + d + 'W MINDRE!', VW / 2, 43, '#ff6060', 1, 'center');
+    drawText('BRUK ' + d + 'W MINDRE!', SW / 2, y, '#ff6060', 1, 'center');
+  }
+}
+
+function drawMobileBar() {
+  // Kompakt topplinje på mobil: veggpanelet kan være utenfor kamera
+  if (zoom <= 1) return;
+  if (state !== 'play' && state !== 'pause') return;
+  ctx.fillStyle = 'rgba(8,10,14,0.85)';
+  ctx.fillRect(0, 0, SW, 20);
+  const innCol = changeFlash > 0 && Math.floor(changeFlash * 10) % 2 === 0 ? '#ffffff' : '#ffd040';
+  drawText('INN ' + incoming + 'W', 6, 4, innCol, 1);
+  const d = diff();
+  const useCol = incoming === 0 ? '#6a7684' : (d === 0 ? '#60ff80' : (d > 0 ? '#ff6060' : '#60b0ff'));
+  drawText('BRUK ' + consumption() + 'W', SW - 6, 4, useCol, 1, 'right');
+  if (nextTarget !== null && Math.floor(warnT * 6) % 2 === 0) {
+    drawText('NESTE: ' + nextTarget + 'W OM ' + Math.ceil(warnT), SW / 2, 13, '#ffd040', 1, 'center');
   }
 }
 
@@ -1120,32 +1190,41 @@ function box(x, y, w, h, light, dark) {
   ctx.fillRect(x + 1, y + h - 2, w - 2, 1);
 }
 
+let ctxNears = [];
+
 function drawApplianceLabels() {
-  const nears = state === 'play' ? players.map(p => nearestAppliance(p)) : [];
+  ctxNears = state === 'play' ? players.map(p => nearestAppliance(p)) : [];
   const hiCols = ['#ffffff', '#80e8ff'];
   for (const a of appliances) {
     const below = a.y < 60;
     const ly = below ? a.y + a.h + 2 : a.y - 7;
     const col = a.on ? '#60ff80' : '#9aa4b0';
     drawText(a.watt + 'W', a.x + a.w / 2, ly, col, 1, 'center');
-    for (let i = 0; i < nears.length; i++) {
-      if (a === nears[i] && (frame >> 3) % 2 === 0) {
+    for (let i = 0; i < ctxNears.length; i++) {
+      if (a === ctxNears[i] && (frame >> 3) % 2 === 0) {
         ctx.strokeStyle = hiCols[i];
         ctx.strokeRect(a.x - 1.5, a.y - 1.5, a.w + 3, a.h + 3);
       }
     }
   }
+}
+
+function drawContextLabel() {
+  // Navnet på apparatet du står ved, nederst på skjermen
+  if (state !== 'play') return;
+  const hiCols = ['#ffffff', '#80e8ff'];
   const toggleKey = ['E', 'ENTER'];
   if (playerCount === 1) {
-    if (nears[0]) {
-      const label = nears[0].name + ' ' + nears[0].watt + 'W [E: ' + (nears[0].on ? 'AV' : 'PÅ') + ']';
-      drawText(label, VW / 2, VH - 24, '#ffffff', 1, 'center');
+    if (ctxNears[0]) {
+      const key = isTouch ? 'AV/PÅ' : 'E';
+      const label = ctxNears[0].name + ' ' + ctxNears[0].watt + 'W [' + key + ': ' + (ctxNears[0].on ? 'AV' : 'PÅ') + ']';
+      drawText(label, SW / 2, SH - 24, '#ffffff', 1, 'center');
     }
   } else {
-    for (let i = 0; i < nears.length; i++) {
-      if (!nears[i]) continue;
-      const label = nears[i].name + ' [' + toggleKey[i] + ': ' + (nears[i].on ? 'AV' : 'PÅ') + ']';
-      drawText(label, i === 0 ? 80 : 240, VH - 24, hiCols[i], 1, 'center');
+    for (let i = 0; i < ctxNears.length; i++) {
+      if (!ctxNears[i]) continue;
+      const label = ctxNears[i].name + ' [' + toggleKey[i] + ': ' + (ctxNears[i].on ? 'AV' : 'PÅ') + ']';
+      drawText(label, (i === 0 ? 0.25 : 0.75) * SW, SH - 24, hiCols[i], 1, 'center');
     }
   }
 }
@@ -1202,13 +1281,13 @@ function drawFloats() {
 
 function drawHUD() {
   ctx.fillStyle = 'rgba(8,10,14,0.85)';
-  ctx.fillRect(0, VH - 14, VW, 14);
+  ctx.fillRect(0, SH - 14, SW, 14);
   const scoreCol = scoreFlashT > 0 && Math.floor(scoreFlashT * 12) % 2 === 0 ? '#ffffff' : '#ffe060';
-  drawText('POENG ' + Math.floor(score), 6, VH - 10, scoreCol, 1);
-  drawText('NIVÅ ' + level, VW - 6, VH - 10, '#80e8ff', 1, 'right');
+  drawText('POENG ' + Math.floor(score), 6, SH - 10, scoreCol, 1);
+  drawText('NIVÅ ' + level, SW - 6, SH - 10, '#80e8ff', 1, 'right');
 
   // Stabilitetsmåler
-  const bw = 80, bx = VW / 2 - bw / 2, by = VH - 10;
+  const bw = SW < 280 ? 50 : 80, bx = SW / 2 - bw / 2, by = SH - 10;
   drawText('NETT', bx - 4, by, '#9aa4b0', 1, 'right');
   ctx.fillStyle = '#22262e';
   ctx.fillRect(bx, by, bw, 5);
@@ -1220,17 +1299,17 @@ function drawHUD() {
 
   // Sprintindikator(er)
   if (playerCount === 1) {
-    drawSprintMeter(players[0], 216, 26, '');
+    drawSprintMeter(players[0], SW / 2 + bw / 2 + 12, 26, '');
   } else {
-    drawSprintMeter(players[0], 206, 18, '1');
-    drawSprintMeter(players[1], 244, 18, '2');
+    drawSprintMeter(players[0], SW / 2 + bw / 2 + 6, 18, '1');
+    drawSprintMeter(players[1], SW / 2 + bw / 2 + 44, 18, '2');
   }
 
-  if (muted) drawText('LYD AV (M)', VW - 6, VH - 22, '#5a6472', 1, 'right');
+  if (muted) drawText('LYD AV (M)', SW - 6, SH - 22, '#5a6472', 1, 'right');
 }
 
 function drawSprintMeter(p, sx, barW, label) {
-  const sy = VH - 9;
+  const sy = SH - 9;
   const sprinting = p.sprintT > 0;
   const ready = p.sprintCd <= 0;
   if (label) { drawText(label, sx - 1, sy - 2, '#9aa4b0', 1); sx += 5; }
@@ -1289,88 +1368,96 @@ function drawTouchControls() {
 /* --- Skjermer --- */
 function drawTitle() {
   ctx.fillStyle = 'rgba(6,8,14,0.88)';
-  ctx.fillRect(0, 0, VW, VH);
+  ctx.fillRect(0, 0, SW, SH);
+  const cx = SW / 2, oy = uiOy();
 
   // Lynlogo
   const t = frame * 0.05;
   ctx.fillStyle = '#ffd040';
-  const lx = VW / 2, ly = 26 + Math.sin(t) * 2;
+  const lx = cx, ly = oy + 26 + Math.sin(t) * 2;
   ctx.beginPath();
   ctx.moveTo(lx + 2, ly); ctx.lineTo(lx - 5, ly + 13); ctx.lineTo(lx - 1, ly + 13);
   ctx.lineTo(lx - 3, ly + 24); ctx.lineTo(lx + 6, ly + 10); ctx.lineTo(lx + 1, ly + 10);
   ctx.closePath(); ctx.fill();
 
-  drawText('STRØMBALLETTEN', VW / 2, 62, '#ffe060', 2, 'center');
-  drawText('ET KRAFTDRAMA I FLERE AKTER', VW / 2, 80, '#8a96a4', 1, 'center');
+  drawText('STRØMBALLETTEN', cx, oy + 62, '#ffe060', 2, 'center');
+  drawText('ET KRAFTDRAMA I FLERE AKTER', cx, oy + 80, '#8a96a4', 1, 'center');
 
-  drawText('OVERSKUDDSKRAFTEN MÅ BRUKES OPP.', VW / 2, 102, '#c8d0d8', 1, 'center');
-  drawText('SKRU APPARATER AV OG PÅ SLIK AT', VW / 2, 112, '#c8d0d8', 1, 'center');
-  drawText('FORBRUKET MATCHER PROGNOSEN.', VW / 2, 122, '#c8d0d8', 1, 'center');
-  drawText('NORGE STOLER PÅ DEG.', VW / 2, 132, '#ffd040', 1, 'center');
+  drawText('OVERSKUDDSKRAFTEN MÅ BRUKES OPP.', cx, oy + 102, '#c8d0d8', 1, 'center');
+  drawText('SKRU APPARATER AV OG PÅ SLIK AT', cx, oy + 112, '#c8d0d8', 1, 'center');
+  drawText('FORBRUKET MATCHER PROGNOSEN.', cx, oy + 122, '#c8d0d8', 1, 'center');
+  drawText('NORGE STOLER PÅ DEG.', cx, oy + 132, '#ffd040', 1, 'center');
 
   // Modusvalg
   const opts = ['EN SPILLER', 'TO SPILLERE'];
   for (let i = 0; i < 2; i++) {
     const sel = menuSel === i;
-    drawText(opts[i], VW / 2, 146 + i * 11, sel ? '#ffffff' : '#5a6472', 1, 'center');
+    drawText(opts[i], cx, oy + 146 + i * 11, sel ? '#ffffff' : '#5a6472', 1, 'center');
     if (sel) {
-      drawBolt(VW / 2 - textW(opts[i], 1) / 2 - 11, 145 + i * 11,
+      drawBolt(cx - textW(opts[i], 1) / 2 - 11, oy + 145 + i * 11,
         (frame >> 4) % 2 === 0 ? '#ffd040' : '#7a6830');
     }
   }
 
-  if (menuSel === 0) {
-    drawText('WASD/PILER: LØP   SHIFT: SPRINT', VW / 2, 176, '#80e8ff', 1, 'center');
-    drawText('E/MELLOMROM: AV/PÅ   P: PAUSE', VW / 2, 186, '#80e8ff', 1, 'center');
+  if (isTouch) {
+    drawText('STYRESPAK: VENSTRE HALVDEL', cx, oy + 176, '#80e8ff', 1, 'center');
+    drawText('KNAPPER: NEDE TIL HØYRE', cx, oy + 186, '#80e8ff', 1, 'center');
+  } else if (menuSel === 0) {
+    drawText('WASD/PILER: LØP   SHIFT: SPRINT', cx, oy + 176, '#80e8ff', 1, 'center');
+    drawText('E/MELLOMROM: AV/PÅ   P: PAUSE', cx, oy + 186, '#80e8ff', 1, 'center');
   } else {
-    drawText('S1: WASD + E + V.SHIFT', VW / 2, 176, '#80e8ff', 1, 'center');
-    drawText('S2: PILER + ENTER + H.SHIFT', VW / 2, 186, '#80e8ff', 1, 'center');
+    drawText('S1: WASD + E + V.SHIFT', cx, oy + 176, '#80e8ff', 1, 'center');
+    drawText('S2: PILER + ENTER + H.SHIFT', cx, oy + 186, '#80e8ff', 1, 'center');
   }
 
   if ((frame >> 5) % 2 === 0) {
-    drawText(isTouch ? 'TRYKK TO GANGER PÅ ET VALG' : 'TRYKK ENTER FOR Å STARTE VAKTA', VW / 2, 202, '#ffffff', 1, 'center');
+    drawText(isTouch ? 'TRYKK TO GANGER PÅ ET VALG' : 'TRYKK ENTER FOR Å STARTE VAKTA', cx, oy + 202, '#ffffff', 1, 'center');
   }
-  if (hiscore > 0) drawText('REKORD: ' + hiscore, VW / 2, 214, '#ffe060', 1, 'center');
+  if (hiscore > 0) drawText('REKORD: ' + hiscore, cx, oy + 214, '#ffe060', 1, 'center');
 }
 
 function drawPause() {
   ctx.fillStyle = 'rgba(6,8,14,0.7)';
-  ctx.fillRect(0, 0, VW, VH);
-  drawText('PAUSE', VW / 2, 105, '#ffffff', 2, 'center');
-  drawText('KRAFTSYSTEMET VENTER PÅ DEG', VW / 2, 126, '#8a96a4', 1, 'center');
-  drawText('TRYKK P FOR Å FORTSETTE', VW / 2, 138, '#80e8ff', 1, 'center');
+  ctx.fillRect(0, 0, SW, SH);
+  const cx = SW / 2, oy = uiOy();
+  drawText('PAUSE', cx, oy + 105, '#ffffff', 2, 'center');
+  drawText('KRAFTSYSTEMET VENTER PÅ DEG', cx, oy + 126, '#8a96a4', 1, 'center');
+  drawText('TRYKK P FOR Å FORTSETTE', cx, oy + 138, '#80e8ff', 1, 'center');
 }
 
 function drawGameOver() {
   const dark = Math.min(1, blackoutT * 0.8);
   ctx.fillStyle = 'rgba(0,0,4,' + (0.95 * dark) + ')';
-  ctx.fillRect(0, 0, VW, VH);
+  ctx.fillRect(0, 0, SW, SH);
   if (blackoutT < 1.4) return;
+  const cx = SW / 2, oy = uiOy();
 
-  if ((frame >> 4) % 2 === 0) drawText('BLACKOUT!', VW / 2, 70, '#ff6060', 3, 'center');
-  drawText('HELE LANDET ER MØRKLAGT.', VW / 2, 102, '#c8d0d8', 1, 'center');
+  if ((frame >> 4) % 2 === 0) drawText('BLACKOUT!', cx, oy + 70, '#ff6060', 3, 'center');
+  drawText('HELE LANDET ER MØRKLAGT.', cx, oy + 102, '#c8d0d8', 1, 'center');
   const subj = playerCount === 2 ? 'DERE' : 'DU';
-  drawText(subj + ' HOLDT NETTET I ' + Math.floor(playTime) + ' SEKUNDER.', VW / 2, 114, '#c8d0d8', 1, 'center');
-  drawText('POENG: ' + Math.floor(score), VW / 2, 134, '#ffe060', 2, 'center');
+  drawText(subj + ' HOLDT NETTET I ' + Math.floor(playTime) + ' SEKUNDER.', cx, oy + 114, '#c8d0d8', 1, 'center');
+  drawText('POENG: ' + Math.floor(score), cx, oy + 134, '#ffe060', 2, 'center');
   if (Math.floor(score) >= hiscore && hiscore > 0) {
-    drawText('NY REKORD!', VW / 2, 152, '#60ff80', 1, 'center');
+    drawText('NY REKORD!', cx, oy + 152, '#60ff80', 1, 'center');
   } else if (hiscore > 0) {
-    drawText('REKORD: ' + hiscore, VW / 2, 152, '#8a96a4', 1, 'center');
+    drawText('REKORD: ' + hiscore, cx, oy + 152, '#8a96a4', 1, 'center');
   }
   if (blackoutT > 2.2 && (frame >> 5) % 2 === 0) {
-    drawText(isTouch ? 'TRYKK PÅ SKJERMEN FOR NY VAKT' : 'TRYKK R FOR NY VAKT', VW / 2, 180, '#ffffff', 1, 'center');
+    drawText(isTouch ? 'TRYKK PÅ SKJERMEN FOR NY VAKT' : 'TRYKK R FOR NY VAKT', cx, oy + 180, '#ffffff', 1, 'center');
   }
 }
 
 /* ---------------- HOVEDLØKKE ---------------- */
 if (location.hash === '#play' || location.hash === '#playtouch') { reset(); state = 'play'; }
 if (location.hash === '#play2') { playerCount = 2; reset(); state = 'play'; }
+layoutCanvas();
 
 let last = performance.now();
 function loop(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   update(dt);
+  updateCamera(dt);
   updateMusic();
   render();
   requestAnimationFrame(loop);
