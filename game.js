@@ -127,6 +127,38 @@ const SFX = {
   dash:    () => { tone(180, 0.16, 'square', 0.10, 0, 720); },
 };
 
+/* ---------------- MUSIKK ---------------- */
+// A-moll. Bass i 16 steg, melodi (pentaton) i 32 steg. 0 = pause.
+const MUS_BASS = [
+  110, 0, 110, 0, 130.81, 0, 130.81, 0,
+  87.31, 0, 87.31, 0, 98, 0, 82.41, 0,
+];
+const MUS_LEAD = [
+  440, 0, 523.25, 587.33, 659.25, 0, 0, 587.33,
+  523.25, 0, 440, 0, 0, 0, 392, 0,
+  440, 0, 523.25, 0, 659.25, 0, 783.99, 0,
+  659.25, 0, 587.33, 523.25, 440, 0, 0, 0,
+];
+let musStep = 0, musNext = 0;
+function updateMusic() {
+  if (!actx || muted) { musNext = 0; return; }
+  if (state === 'over' || state === 'pause') { musNext = 0; return; }
+  const title = state === 'title';
+  const stepLen = title ? 0.28 : 0.14 / (1 + 0.04 * (level - 1));
+  if (musNext === 0 || musNext < actx.currentTime - 0.5) musNext = actx.currentTime + 0.05;
+  while (musNext < actx.currentTime + 0.2) {
+    const delay = Math.max(0, musNext - actx.currentTime);
+    const b = MUS_BASS[musStep % MUS_BASS.length];
+    if (b) tone(b, stepLen * 0.9, 'triangle', 0.05, delay);
+    if (!title) {
+      const l = MUS_LEAD[musStep % MUS_LEAD.length];
+      if (l) tone(l, stepLen * 0.85, 'square', 0.03, delay);
+    }
+    musStep++;
+    musNext += stepLen;
+  }
+}
+
 /* ---------------- APPARATER ---------------- */
 function mkAppliances() {
   return [
@@ -140,7 +172,7 @@ function mkAppliances() {
     { type: 'radio',       name: 'RADIO',       watt: 15,  x: 286, y: 162, w: 22, h: 14 },
     { type: 'lampe',       name: 'LAMPE',       watt: 10,  x: 118, y: 130, w: 18, h: 24 },
     { type: 'klokke',      name: 'KLOKKE',      watt: 3,   x: 186, y: 132, w: 18, h: 20 },
-  ].map(a => Object.assign(a, { on: false, spark: 0, jam: 0, anim: 0 }));
+  ].map(a => Object.assign(a, { on: false, spark: 0, jam: 0, anim: 0, flash: 0 }));
 }
 
 const TICKER = [
@@ -171,7 +203,8 @@ let level = 1, levelT = 0, playTime = 0;
 let chaosT = 12, trollT = 14;
 let banner = '', bannerT = 0;
 let changeFlash = 0, shakeT = 0, shakeMag = 0, flickerT = 0;
-let blackoutT = 0;
+let flashT = 0, scoreFlashT = 0;
+let blackoutT = 0, slukkT = 0, slukkN = 0;
 let tickerX = VW, tickerMsg = '';
 let particles = [], floats = [];
 let keys = {};
@@ -239,7 +272,8 @@ function reset() {
   level = 1; levelT = 0; playTime = 0;
   chaosT = rnd(10, 15); trollT = rnd(12, 18);
   banner = ''; bannerT = 0;
-  changeFlash = 0; shakeT = 0; flickerT = 0; blackoutT = 0;
+  changeFlash = 0; shakeT = 0; flickerT = 0; flashT = 0; scoreFlashT = 0;
+  blackoutT = 0; slukkT = 0; slukkN = 0;
   particles = []; floats = [];
   tickerX = VW; tickerMsg = pick(TICKER);
 }
@@ -305,8 +339,9 @@ function tryToggle() {
     return;
   }
   a.on = !a.on;
+  a.flash = 0.15;
   if (a.on) SFX.on(); else SFX.off();
-  addSparks(a, 3);
+  addSparks(a, 6);
 }
 
 function trySprint() {
@@ -320,7 +355,24 @@ function trySprint() {
 function update(dt) {
   frame++;
   if (state !== 'play') {
-    if (state === 'over') blackoutT += dt;
+    if (state === 'over') {
+      blackoutT += dt;
+      // Apparatene slukker ett og ett mens landet mørklegges
+      slukkT -= dt;
+      if (slukkT <= 0) {
+        const a = appliances.find(x => x.on);
+        if (a) {
+          a.on = false;
+          tone(190 - 14 * slukkN, 0.14, 'square', 0.10);
+          slukkN++;
+        }
+        slukkT = 0.14;
+      }
+      particles = particles.filter(p => {
+        p.t -= dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 120 * dt;
+        return p.t > 0;
+      });
+    }
     return;
   }
 
@@ -387,6 +439,15 @@ function update(dt) {
     score += bonus;
     SFX.perfekt();
     addFloat(player.x, player.y - 14, combo > 1 ? 'BALLETT X' + combo + '! +' + bonus : 'PERFEKT! +' + bonus, '#80e8ff');
+    flashT = 0.12;
+    scoreFlashT = 0.35;
+    for (let i = 0; i < 14; i++) {
+      particles.push({
+        x: player.x, y: player.y - 8,
+        vx: rnd(-60, 60), vy: rnd(-90, -20),
+        t: rnd(0.4, 0.8), col: pick(['#80e8ff', '#ffe060', '#60ff80', '#ff80c0']),
+      });
+    }
   }
   if (!perfectAwarded && sinceChange >= 5) { combo = 0; perfectAwarded = true; }
 
@@ -415,6 +476,13 @@ function update(dt) {
     level++; levelT = 0;
     banner = 'NIVÅ ' + level + '!'; bannerT = 2;
     SFX.levelup();
+    for (let i = 0; i < 20; i++) {
+      particles.push({
+        x: rnd(40, VW - 40), y: rnd(108, 128),
+        vx: rnd(-30, 30), vy: rnd(-60, -10),
+        t: rnd(0.4, 0.9), col: pick(['#ffe060', '#80e8ff']),
+      });
+    }
   }
 
   // --- Kortslutning (kaos) ---
@@ -474,6 +542,9 @@ function update(dt) {
   if (changeFlash > 0) changeFlash -= dt;
   if (bannerT > 0) bannerT -= dt;
   if (shakeT > 0) shakeT -= dt;
+  if (flashT > 0) flashT -= dt;
+  if (scoreFlashT > 0) scoreFlashT -= dt;
+  for (const a of appliances) if (a.flash > 0) a.flash -= dt;
 
   // --- Partikler og tekst ---
   particles = particles.filter(p => {
@@ -509,7 +580,7 @@ function applyTarget(val, surge) {
 
 function gameOver() {
   state = 'over';
-  blackoutT = 0;
+  blackoutT = 0; slukkT = 0.3; slukkN = 0;
   SFX.blackout();
   score = Math.floor(score);
   if (score > hiscore) {
@@ -550,6 +621,11 @@ function render() {
   drawStatus();
   drawHUD();
   drawFloats();
+
+  if (flashT > 0) {
+    ctx.fillStyle = 'rgba(140,230,255,' + Math.min(0.35, flashT * 2.5) + ')';
+    ctx.fillRect(-4, -4, VW + 8, VH + 8);
+  }
 
   if (flickerT > 0 && state === 'play') {
     ctx.fillStyle = 'rgba(0,0,10,0.4)';
@@ -636,9 +712,11 @@ function drawPanel() {
     ctx.lineTo(gx + Math.cos(ang) * 17, gy + Math.sin(ang) * 17);
     ctx.stroke();
   }
-  // Nål
+  // Nål (pulserer grønt når nettet er i balanse)
   const nAng = -Math.PI / 2 + (hz - 50) * 0.5;
-  ctx.strokeStyle = Math.abs(hz - 50) < 0.05 ? '#60ff80' : '#ff6060';
+  ctx.strokeStyle = Math.abs(hz - 50) < 0.05
+    ? 'rgba(96,255,128,' + (0.7 + 0.3 * Math.sin(frame * 0.25)) + ')'
+    : '#ff6060';
   ctx.beginPath();
   ctx.moveTo(gx, gy);
   ctx.lineTo(gx + Math.cos(nAng) * 15, gy + Math.sin(nAng) * 15);
@@ -677,7 +755,7 @@ function drawStatus() {
   if (incoming === 0) {
     drawText('VENTER PÅ PROGNOSE...', VW / 2, 43, '#8a96a4', 1, 'center');
   } else if (d === 0) {
-    if ((frame >> 4) % 2 === 0) drawText('I BALANSE!', VW / 2, 43, '#60ff80', 1, 'center');
+    drawText('I BALANSE!', VW / 2, 43, (frame >> 4) % 2 === 0 ? '#60ff80' : '#a8ffc0', 1, 'center');
   } else if (d < 0) {
     drawText('BRUK ' + (-d) + 'W MER!', VW / 2, 43, '#60b0ff', 1, 'center');
   } else {
@@ -876,6 +954,11 @@ function drawAppliance(a) {
   }
   ctx.restore();
 
+  // Toggle-blink
+  if (a.flash > 0) {
+    ctx.strokeStyle = 'rgba(255,255,255,' + Math.min(1, a.flash * 8) + ')';
+    ctx.strokeRect(x - 1.5, y - 1.5, w + 3, h + 3);
+  }
   // Kortslutningsvarsel
   if (a.spark > 0) {
     if (Math.floor(a.spark * 8) % 2 === 0) {
@@ -973,7 +1056,8 @@ function drawFloats() {
 function drawHUD() {
   ctx.fillStyle = 'rgba(8,10,14,0.85)';
   ctx.fillRect(0, VH - 14, VW, 14);
-  drawText('POENG ' + Math.floor(score), 6, VH - 10, '#ffe060', 1);
+  const scoreCol = scoreFlashT > 0 && Math.floor(scoreFlashT * 12) % 2 === 0 ? '#ffffff' : '#ffe060';
+  drawText('POENG ' + Math.floor(score), 6, VH - 10, scoreCol, 1);
   drawText('NIVÅ ' + level, VW - 6, VH - 10, '#80e8ff', 1, 'right');
 
   // Stabilitetsmåler
@@ -1051,10 +1135,10 @@ function drawPause() {
 }
 
 function drawGameOver() {
-  const dark = Math.min(1, blackoutT * 1.5);
+  const dark = Math.min(1, blackoutT * 0.8);
   ctx.fillStyle = 'rgba(0,0,4,' + (0.95 * dark) + ')';
   ctx.fillRect(0, 0, VW, VH);
-  if (blackoutT < 0.8) return;
+  if (blackoutT < 1.4) return;
 
   if ((frame >> 4) % 2 === 0) drawText('BLACKOUT!', VW / 2, 70, '#ff6060', 3, 'center');
   drawText('HELE LANDET ER MØRKLAGT.', VW / 2, 102, '#c8d0d8', 1, 'center');
@@ -1065,7 +1149,7 @@ function drawGameOver() {
   } else if (hiscore > 0) {
     drawText('REKORD: ' + hiscore, VW / 2, 152, '#8a96a4', 1, 'center');
   }
-  if (blackoutT > 1.6 && (frame >> 5) % 2 === 0) {
+  if (blackoutT > 2.2 && (frame >> 5) % 2 === 0) {
     drawText('TRYKK R FOR NY VAKT', VW / 2, 180, '#ffffff', 1, 'center');
   }
 }
@@ -1078,6 +1162,7 @@ function loop(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
   update(dt);
+  updateMusic();
   render();
   requestAnimationFrame(loop);
 }
