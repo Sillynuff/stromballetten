@@ -3,7 +3,7 @@
 Et retro 8-bit spill om å holde det norske kraftsystemet i balanse — inspirert av
 sketsjen «Norsk sluttstrøm» fra *Uti vår hage*.
 
-**[▶ Spill det her](https://USERNAME.github.io/stromballetten/)**
+**[▶ Spill det her](https://sillynuff.github.io/stromballetten/)**
 
 ## Slik spiller du
 
